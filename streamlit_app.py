@@ -3,111 +3,131 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# File paths
+# =========================
+# File Paths
+# =========================
 OUTGOING_FILE = "lab_outgoing.csv"
-INCOMING_FILE = "lab_incoming.csv"
-TRANSACTIONS_FILE = "transactions.csv"
+RETURNED_FILE = "lab_returned.csv"
 
-# ---------- Utility: Create CSVs if missing ----------
-def init_files():
-    if not os.path.exists(OUTGOING_FILE):
-        pd.DataFrame(columns=["Roll No", "Name", "Product", "Date"]).to_csv(OUTGOING_FILE, index=False)
-    if not os.path.exists(INCOMING_FILE):
-        pd.DataFrame(columns=["Roll No", "Name", "Product", "Date"]).to_csv(INCOMING_FILE, index=False)
-    if not os.path.exists(TRANSACTIONS_FILE):
-        pd.DataFrame(columns=["Roll No", "Name", "Product", "Status", "Date"]).to_csv(TRANSACTIONS_FILE, index=False)
+# =========================
+# Sample Data (auto-create)
+# =========================
+if not os.path.exists(OUTGOING_FILE):
+    sample_outgoing = pd.DataFrame([
+        {"Date": "2025-08-20", "Roll No": "22BCS001", "Name": "Rahul", "Product": "Microscope", "Quantity": 1},
+        {"Date": "2025-08-21", "Roll No": "22BCS002", "Name": "Priya", "Product": "Beaker", "Quantity": 2},
+    ])
+    sample_outgoing.to_csv(OUTGOING_FILE, index=False)
 
-# Initialize
-init_files()
+if not os.path.exists(RETURNED_FILE):
+    sample_returned = pd.DataFrame([
+        {"Date": "2025-08-22", "Roll No": "22BCS001", "Product": "Microscope", "Quantity": 1},
+    ])
+    sample_returned.to_csv(RETURNED_FILE, index=False)
 
-# ---------- Load Data ----------
+# =========================
+# Load CSVs
+# =========================
 def load_data():
     outgoing = pd.read_csv(OUTGOING_FILE)
-    incoming = pd.read_csv(INCOMING_FILE)
-    transactions = pd.read_csv(TRANSACTIONS_FILE)
-    return outgoing, incoming, transactions
+    returned = pd.read_csv(RETURNED_FILE)
+    return outgoing, returned
 
-def save_data(outgoing, incoming, transactions):
-    outgoing.to_csv(OUTGOING_FILE, index=False)
-    incoming.to_csv(INCOMING_FILE, index=False)
-    transactions.to_csv(TRANSACTIONS_FILE, index=False)
+def save_data(df, file):
+    df.to_csv(file, index=False)
 
-# ---------- Streamlit UI ----------
+# =========================
+# Streamlit UI
+# =========================
+st.set_page_config(page_title="🧪 Lab Register System", layout="wide")
 st.title("🧪 Lab Register System")
 
-menu = st.sidebar.radio("Navigation", ["Outgoing", "Incoming", "Reports"])
+tabs = st.tabs(["➕ Outgoing Entry", "✅ Returned Entry", "📊 Reports & Filters"])
 
-outgoing, incoming, transactions = load_data()
+# =========================
+# Outgoing Entry
+# =========================
+with tabs[0]:
+    st.header("➕ Add Outgoing Product")
 
-# ---------------- OUTGOING ----------------
-if menu == "Outgoing":
-    st.header("📤 Outgoing Products")
-    with st.form("outgoing_form"):
-        roll = st.text_input("Roll Number")
-        name = st.text_input("Name")
-        product = st.text_input("Product Name")
-        submitted = st.form_submit_button("Submit Outgoing")
+    with st.form("outgoing_form", clear_on_submit=True):
+        roll = st.text_input("Roll No")
+        name = st.text_input("Student Name")
+        product = st.text_input("Product")
+        qty = st.number_input("Quantity", min_value=1, step=1)
+        submitted = st.form_submit_button("Add Outgoing")
+
         if submitted:
-            if roll and name and product:
-                date = datetime.now().strftime("%Y-%m-%d %H:%M")
-                new_entry = pd.DataFrame([[roll, name, product, date]], columns=["Roll No", "Name", "Product", "Date"])
-                outgoing = pd.concat([outgoing, new_entry], ignore_index=True)
-                transactions = pd.concat([transactions, pd.DataFrame([[roll, name, product, "Outgoing", date]], 
-                                                                     columns=["Roll No", "Name", "Product", "Status", "Date"])], ignore_index=True)
-                save_data(outgoing, incoming, transactions)
-                st.success(f"Product '{product}' issued to {name} ({roll})")
+            outgoing, returned = load_data()
+            new_entry = {
+                "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "Roll No": roll,
+                "Name": name,
+                "Product": product,
+                "Quantity": qty
+            }
+            outgoing = pd.concat([outgoing, pd.DataFrame([new_entry])], ignore_index=True)
+            save_data(outgoing, OUTGOING_FILE)
+            st.success(f"✅ Outgoing entry added for {name} ({product})")
 
-    st.subheader("Outgoing Records")
-    st.dataframe(outgoing)
+# =========================
+# Returned Entry
+# =========================
+with tabs[1]:
+    st.header("✅ Add Returned Product")
 
-# ---------------- INCOMING ----------------
-elif menu == "Incoming":
-    st.header("📥 Incoming Products (Return)")
-    roll = st.text_input("Enter Roll Number")
-    if roll:
-        # Find products not returned
-        issued = outgoing[outgoing["Roll No"] == roll]
-        returned = incoming[incoming["Roll No"] == roll]
-        not_returned = issued[~issued["Product"].isin(returned["Product"])]
+    with st.form("returned_form", clear_on_submit=True):
+        roll = st.text_input("Roll No (Return)")
+        product = st.text_input("Product (Return)")
+        qty = st.number_input("Quantity Returned", min_value=1, step=1)
+        submitted = st.form_submit_button("Add Returned")
 
-        if not_returned.empty:
-            st.info("No pending products for this student.")
-        else:
-            st.write("Pending products:")
-            product = st.selectbox("Select product to return", not_returned["Product"].unique())
-            if st.button("Submit Return"):
-                row = not_returned[not_returned["Product"] == product].iloc[0]
-                date = datetime.now().strftime("%Y-%m-%d %H:%M")
-                new_entry = pd.DataFrame([[roll, row["Name"], product, date]], columns=["Roll No", "Name", "Product", "Date"])
-                incoming = pd.concat([incoming, new_entry], ignore_index=True)
-                transactions = pd.concat([transactions, pd.DataFrame([[roll, row["Name"], product, "Incoming", date]], 
-                                                                     columns=["Roll No", "Name", "Product", "Status", "Date"])], ignore_index=True)
-                save_data(outgoing, incoming, transactions)
-                st.success(f"Product '{product}' returned by {row['Name']} ({roll})")
+        if submitted:
+            outgoing, returned = load_data()
+            new_entry = {
+                "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "Roll No": roll,
+                "Product": product,
+                "Quantity": qty
+            }
+            returned = pd.concat([returned, pd.DataFrame([new_entry])], ignore_index=True)
+            save_data(returned, RETURNED_FILE)
+            st.success(f"✅ Return entry added for {roll} ({product})")
 
-    st.subheader("Incoming Records")
-    st.dataframe(incoming)
-
-# ---------------- REPORTS ----------------
-elif menu == "Reports":
+# =========================
+# Reports & Filters
+# =========================
+with tabs[2]:
     st.header("📊 Reports & Filters")
 
-    # Not returned items
-    issued_all = outgoing.copy()
-    returned_all = incoming.copy()
-    not_returned = issued_all.merge(returned_all, on=["Roll No", "Product"], how="left", suffixes=("_issued", "_returned"))
-    not_returned = not_returned[not_returned["Date_returned"].isna()][["Roll No", "Name_issued", "Product", "Date_issued"]]
-    not_returned.rename(columns={"Name_issued": "Name", "Date_issued": "Issued Date"}, inplace=True)
+    outgoing, returned = load_data()
 
-    st.subheader("❌ Not Returned Products")
-    st.dataframe(not_returned)
+    # --- Issued Report
+    st.subheader("📦 All Issued Products")
+    st.dataframe(outgoing, use_container_width=True)
 
-    # Student-wise search
-    st.subheader("🔎 Student History")
-    search_roll = st.text_input("Enter Roll No to view history")
-    if search_roll:
-        student_history = transactions[transactions["Roll No"] == search_roll]
-        if student_history.empty:
-            st.info("No records found for this Roll Number.")
-        else:
-            st.dataframe(student_history)
+    # --- Returned Report
+    st.subheader("📥 All Returned Products")
+    st.dataframe(returned, use_container_width=True)
+
+    # --- Not Returned Report
+    st.subheader("❌ Not Yet Returned")
+
+    if not outgoing.empty:
+        issued_summary = outgoing.groupby(["Roll No", "Name", "Product"], as_index=False)["Quantity"].sum()
+        returned_summary = returned.groupby(["Roll No", "Product"], as_index=False)["Quantity"].sum()
+
+        merged = issued_summary.merge(
+            returned_summary,
+            on=["Roll No", "Product"],
+            how="left",
+            suffixes=("_issued", "_returned")
+        )
+
+        merged["Quantity_returned"] = merged["Quantity_returned"].fillna(0)
+        merged["Pending"] = merged["Quantity_issued"] - merged["Quantity_returned"]
+        not_returned = merged[merged["Pending"] > 0]
+
+        st.dataframe(not_returned, use_container_width=True)
+    else:
+        st.info("No outgoing records yet.")
